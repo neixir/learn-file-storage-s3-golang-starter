@@ -1,12 +1,14 @@
 package main
 
 import (
-	"path/filepath"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -71,6 +73,19 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// CH2 L5
+	// Instead of using the videoID to create the file path, use crypto/rand.Read to fill a 32-byte slice with random bytes.
+	// Use base64.RawURLEncoding to then convert it into a random base64 string. Use this string as the file name,
+	// and set the extension based on the media type (same as before). For example:
+	// QmFzZTY0U3RyaW5nRXhhbXBsZQ.png
+
+	// https://pkg.go.dev/crypto/rand#Read
+	// Note that no error handling is necessary, as Read always succeeds.
+	key := make([]byte, 32)
+	rand.Read(key)
+	randomName := base64.URLEncoding.EncodeToString(key)
+	fmt.Printf("randomName       : %s\n", randomName)
+
 	// CH1 L7
 	// Let's update our handler to store the files on the file system. We'll save uploaded files to the /assets directory on disk.
 
@@ -78,9 +93,10 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	// 1.1 Use the Content-Type header to determine the file extension.
 	// Per exemple "image/png"
 	file_extension := strings.Split(mediatype, "/")[1]
+	fmt.Printf("file_extension   : %s\n", file_extension)
 	
 	// 1.2 Use the videoID to create a unique file path. filepath.Join and cfg.assetsRoot will be helpful here.
-	filename := fmt.Sprintf("%v.%s", videoID, file_extension)
+	filename := fmt.Sprintf("%v.%s", randomName, file_extension)
 	completeFilepath := filepath.Join(cfg.assetsRoot, filename)
 	fmt.Printf("filename         : %s\n", filename)
 	fmt.Printf("completeFilepath : %s\n", completeFilepath)
