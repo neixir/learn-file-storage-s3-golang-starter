@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -31,7 +32,65 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
-	// TODO: implement the upload here
+	// CH1 L05
+	// 1. Authentication has already been taken care of for you, and the video's ID has been parsed from the URL path.
+	// 2. Parse the form 
+	const maxMemory = 10 << 20
+	r.ParseMultipartForm(maxMemory)
 
+	// 3. Get the image data from the form
+	// 3.1 Use r.FormFile to get the file data and file headers. The key the web browser is using is called "thumbnail"
+	// func (r *Request) FormFile(key string) (multipart.File, *multipart.FileHeader, error)
+	file, header, err := r.FormFile("thumbnail")
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to parse form file", err)
+		return
+	}
+	defer file.Close()
+
+	// 3.2 Get the media type from the form file's Content-Type header
+	mediaType := header.Header.Get("Content-Type")
+
+	// 4. Read all the image data into a byte slice using io.ReadAll
+	imageData, err := io.ReadAll(file)
+
+	// 5. Get the video's metadata from the SQLite database. The apiConfig's db has a GetVideo method you can use
+	videoMetadata, _ := cfg.db.GetVideo(videoID)
+
+	// If the authenticated user is not the video owner, return a http.StatusUnauthorized response
+	if videoMetadata.UserID != userID {
+		respondWithError(w, http.StatusUnauthorized, "User is not the video owner", err)
+		return
+	}
+
+	// 6. Save the thumbnail to the global map
+	// 6.1 Create a new thumbnail struct with the image data and media type
+	// O potser es referix a crear el tipus (main.go te)
+	thumb := thumbnail{
+		data: imageData,
+		mediaType: mediaType,
+	}
+
+	// 6.2 Add the thumbnail to the global map, using the video's ID as the key
+	videoThumbnails[videoID] = thumb
+
+	// 7. Update the video metadata so that it has a new thumbnail URL,
+	// then update the record in the database by using the cfg.db.UpdateVideo function.
+	// The thumbnail URL should have this format:
+	// http://localhost:<port>/api/thumbnails/{videoID}
+	thumbnailURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%v", cfg.port, videoID)
+	videoMetadata.ThumbnailURL = &thumbnailURL
+
+	err = cfg.db.UpdateVideo(videoMetadata)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to update video ", err)
+		return
+	}
+
+	// This will all work because the /api/thumbnails/{videoID} endpoint serves thumbnails from that global map.
+
+	// 8. Respond with updated JSON of the video's metadata. Use the provided respondWithJSON function and pass it the updated database.Video struct to marshal.
 	respondWithJSON(w, http.StatusOK, struct{}{})
+
+	// 9. Test your handler manually by using the Tubely UI to upload the boots-image-horizontal.png image. You should see the thumbnail update in the UI!
 }
