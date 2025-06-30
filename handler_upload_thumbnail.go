@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"strings"
@@ -60,14 +61,22 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// CH1 L8
+	// Use the mime.ParseMediaType function to get the media type from the Content-Type header
+	// If the media type isn't either image/jpeg or image/png, respond with an error 
+	mediatype, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
+	if mediatype != "image/jpeg" || mediatype != "image/png" || err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Media not valid", err)
+		return
+	}
+
 	// CH1 L7
 	// Let's update our handler to store the files on the file system. We'll save uploaded files to the /assets directory on disk.
 
 	// 1. Instead of encoding to base64, update the handler to save the bytes to a file at the path /assets/<videoID>.<file_extension>.
 	// 1.1 Use the Content-Type header to determine the file extension.
 	// Per exemple "image/png"
-	mediaType := header.Header.Get("Content-Type")
-	file_extension := strings.Split(mediaType, "/")[1]
+	file_extension := strings.Split(mediatype, "/")[1]
 	
 	// 1.2 Use the videoID to create a unique file path. filepath.Join and cfg.assetsRoot will be helpful here.
 	filename := fmt.Sprintf("%v.%s", videoID, file_extension)
