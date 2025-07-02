@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -94,17 +95,36 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	
 	fmt.Printf("Creating temp file %s\n", tempFile.Name())
 
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
-
 	_, err = io.Copy(tempFile, file)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to copy file to TEMP", err)
 		return
 	}
+ 
+	// CH5 L2
+	// Create a processed version of the video. Upload the processed video to S3, and discard the original.
+	processedFileName, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to process video ", err)
+		log.Printf(err.Error())
+		return
+	}
+
+	// Open processed file
+	processedFile, err := os.Open(processedFileName)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to open processed video ", err)
+		return
+	}
+	defer processedFile.Close()
+	defer os.Remove(processedFile.Name())
+
+	// Close and delete original file
+	tempFile.Close()
+	os.Remove(tempFile.Name())
 
 	// CH4 L3
-	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
+	aspectRatio, err := getVideoAspectRatio(processedFile.Name())
 	var prefix string
 	switch aspectRatio {
 		case "16:9": 
@@ -118,8 +138,10 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	// Continuem CH3 L7
 	// 8. Reset the tempFile's file pointer to the beginning with .Seek(0, io.SeekStart)
 	// - this will allow us to read the file again from the beginning
-	tempFile.Seek(0, io.SeekStart)
+	// tempFile.Seek(0, io.SeekStart)
 	
+	fmt.Printf("Will upload %s\n", processedFile.Name())
+
 	// 9. Put the object into S3 using PutObject. You'll need to provide:
 	// The bucket name
 	// The file key. Use the same <random-32-byte-hex>.ext format as the key. e.g. 1a2b3c4d5e6f7890abcd1234ef567890.mp4
@@ -135,7 +157,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	s3Params := s3.PutObjectInput{
 		Bucket: &cfg.s3Bucket,
 		Key: &s3Key,
-		Body: tempFile,
+		Body: processedFile,
 		ContentType: &mediatype,
 	}
 
@@ -159,9 +181,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 	fmt.Printf("Stored VideoURL  : %s\n", videoURL)
 
-	// 11. Restart your server and test the handler by uploading the boots-video-vertical.mp4 file. Make sure that:
-	// The video is correctly uploaded to your S3 bucket.
-	// The video_url in your database is updated with the S3 bucket and key (and thus shows up in the web UI)
+
 
 
 
