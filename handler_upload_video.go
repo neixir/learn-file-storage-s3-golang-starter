@@ -103,6 +103,19 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// CH4 L3
+	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
+	var prefix string
+	switch aspectRatio {
+		case "16:9": 
+			prefix = "landscape"
+		case "9:16":
+			prefix = "portrait"
+		default:
+			prefix = "other"
+	} 
+
+	// Continuem CH3 L7
 	// 8. Reset the tempFile's file pointer to the beginning with .Seek(0, io.SeekStart)
 	// - this will allow us to read the file again from the beginning
 	tempFile.Seek(0, io.SeekStart)
@@ -115,11 +128,13 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	// func (c *Client) PutObject(ctx context.Context, params *PutObjectInput, optFns ...func(*Options)) (*PutObjectOutput, error)
 	key := make([]byte, 32)
 	rand.Read(key)
-	s3randomKey := base64.URLEncoding.EncodeToString(key)
+	randomKey := base64.URLEncoding.EncodeToString(key)
+
+	s3Key := fmt.Sprintf("%s/%s", prefix, randomKey)
 
 	s3Params := s3.PutObjectInput{
 		Bucket: &cfg.s3Bucket,
-		Key: &s3randomKey,
+		Key: &s3Key,
 		Body: tempFile,
 		ContentType: &mediatype,
 	}
@@ -135,14 +150,14 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	// 10. Update the VideoURL of the video record in the database with the S3 bucket and key.
 	// S3 URLs are in the format https://<bucket-name>.s3.<region>.amazonaws.com/<key>.
 	// Make sure you use the correct region and bucket name!
-	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, s3randomKey)
+	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, s3Key)
 	videoMetadata.VideoURL = &videoURL
 	err = cfg.db.UpdateVideo(videoMetadata)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to update video ", err)
 		return
 	}
-	fmt.Printf("Stored VideoURL: %s\n", videoURL)
+	fmt.Printf("Stored VideoURL  : %s\n", videoURL)
 
 	// 11. Restart your server and test the handler by uploading the boots-video-vertical.mp4 file. Make sure that:
 	// The video is correctly uploaded to your S3 bucket.
