@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 
 	"github.com/joho/godotenv"
@@ -21,6 +25,7 @@ type apiConfig struct {
 	s3Region         string
 	s3CfDistribution string
 	port             string
+	s3Client		*s3.Client		// CH3 L7
 }
 
 type thumbnail struct {
@@ -97,6 +102,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("Couldn't create assets directory: %v", err)
 	}
+
+	// CH3 L7 No se si va aqui, suposo que no importa massa
+	awsConfig, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(s3Region))
+	if err != nil {
+		panic(fmt.Sprintf("failed loading config, %v", err))
+	}
+	cfg.s3Client = s3.NewFromConfig(awsConfig)
 
 	mux := http.NewServeMux()
 	appHandler := http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot)))
