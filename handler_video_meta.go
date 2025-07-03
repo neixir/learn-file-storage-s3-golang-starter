@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -95,6 +96,16 @@ func (cfg *apiConfig) handlerVideoGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if video.VideoURL != nil {
+		log.Printf("handlerVideoGet  : video.VideoURL is not nil: %v\n", *video.VideoURL)
+		video, err = cfg.dbVideoToSignedVideo(video)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Unable to get presigned video url ", err)
+			return
+		}
+		log.Printf("handlerVideoGet  : video.VideoURL is nil")
+	}
+
 	respondWithJSON(w, http.StatusOK, video)
 }
 
@@ -116,5 +127,20 @@ func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, videos)
+	newVideos := []database.Video{}
+
+	for _ , video:= range(videos) {
+		if video.VideoURL != nil {
+			log.Printf("handlerVideosRetrieve (before): video.VideoURL = %v\n", video.VideoURL)
+			video, err = cfg.dbVideoToSignedVideo(video)
+			if err != nil {
+				respondWithError(w, http.StatusBadRequest, "Unable to get presigned video url ", err)
+				return
+			}
+		}
+		newVideos = append(newVideos, video)
+	}
+
+	respondWithJSON(w, http.StatusOK, newVideos)
+	// respondWithJSON(w, http.StatusOK, videos)
 }

@@ -1,14 +1,16 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"fmt"
 	"io"
+	"fmt"
 	"log"
 	"mime"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -52,9 +54,8 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	// 4. Get the video metadata from the database,
 	// if the user is not the video owner, return a http.StatusUnauthorized response
 	// Copiat de handlerUploadThumbnail
-	videoMetadata, _ := cfg.db.GetVideo(videoID)
-
-	if videoMetadata.UserID != userID {
+	video, _ := cfg.db.GetVideo(videoID)
+	if video.UserID != userID {
 		respondWithError(w, http.StatusUnauthorized, "User is not the video owner", err)
 		return
 	}	
@@ -76,7 +77,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	mediatype, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
 	if mediatype != "video/mp4" || err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Media not valid", err)
-		fmt.Printf("media not valid  : %s\n", mediatype)
+		log.Printf("media not valid  : %s\n", mediatype)
 		return
 	}
 
@@ -93,7 +94,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	
-	fmt.Printf("Creating temp file %s\n", tempFile.Name())
+	log.Printf("Creating temp file %s\n", tempFile.Name())
 
 	_, err = io.Copy(tempFile, file)
 	if err != nil {
@@ -140,7 +141,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	// - this will allow us to read the file again from the beginning
 	// tempFile.Seek(0, io.SeekStart)
 	
-	fmt.Printf("Will upload %s\n", processedFile.Name())
+	log.Printf("Will upload %s\n", processedFile.Name())
 
 	// 9. Put the object into S3 using PutObject. You'll need to provide:
 	// The bucket name
@@ -161,7 +162,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		ContentType: &mediatype,
 	}
 
-	// Retorna un PutObjectOutput que (de moment?) iognorem
+	// Retorna un PutObjectOutput que (de moment?) ignorem
 	// https://pkg.go.dev/github.com/aws/aws-sdk-go-v2/service/s3#PutObjectOutput
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3Params)
 	if err != nil {
@@ -169,20 +170,40 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// CH6 L6 (Step 4)
+	// Store bucket and key as a comma delimited string in the video_url. E.g. tube-private-12345,portrait/vertical.mp4
+	videoURL := fmt.Sprintf("%s,%s", cfg.s3Bucket, s3Key)
+	log.Printf("VideoURL  : %s\n", videoURL)
+
 	// 10. Update the VideoURL of the video record in the database with the S3 bucket and key.
 	// S3 URLs are in the format https://<bucket-name>.s3.<region>.amazonaws.com/<key>.
 	// Make sure you use the correct region and bucket name!
-	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, s3Key)
-	videoMetadata.VideoURL = &videoURL
-	err = cfg.db.UpdateVideo(videoMetadata)
+	// videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, s3Key)
+	video.VideoURL = &videoURL
+	err = cfg.db.UpdateVideo(video)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to update video ", err)
 		return
 	}
-	fmt.Printf("Stored VideoURL  : %s\n", videoURL)
+	log.Printf("Stored VideoURL  : %s (handlerUploadVideo)\n", *video.VideoURL)
 
+}
 
+// CH6 L6 (Step 4)
+func generatePresignedURL(s3Client *s3.Client, bucket, key string, expireTime time.Duration) (string, error) {
+	// Use the SDK to create a s3.PresignClient with s3.NewPresignClient
+	presignClient :=  s3.NewPresignClient(s3Client)
 
-
-
+	// Use the client's .PresignGetObject() method with s3.WithPresignExpires as a functional option.
+	objectInput := s3.GetObjectInput{
+		Bucket: &bucket,
+		Key: &key,
+	}
+	thing, err := presignClient.PresignGetObject(context.Background(), &objectInput, s3.WithPresignExpires(expireTime))
+	if err != nil {
+		return "", err
+	}
+	
+	// Return the .URL field of the v4.PresignedHTTPRequest created by .PresignGetObject()
+	return thing.URL, nil
 }
